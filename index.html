@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Document Viewer</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#2f6fed">
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--text:#1d2430;--muted:#6b7585;--line:#dde1e8;--accent:#2f6fed;--hl:#ffe14d;--cur:#ff8a1f;--page:#fff;--pagetext:#1d2430;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171c;--panel:#1d2128;--text:#e6e9ef;--muted:#8d97a8;--line:#2d333d;--accent:#6a9bff;--page:#fff;--pagetext:#1d2430}}
+:root[data-theme="dark"]{--bg:#14171c;--panel:#1d2128;--text:#e6e9ef;--muted:#8d97a8;--line:#2d333d;--accent:#6a9bff}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+header{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--line)}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:8px;padding:7px 12px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.4;cursor:default}
+.search{flex:1;min-width:180px;display:flex;gap:6px;align-items:center}
+.search input{flex:1;min-width:0;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
+.count{color:var(--muted);font-size:13px;min-width:70px;text-align:center}
+main{flex:1;display:flex;min-height:0}
+aside{width:220px;border-right:1px solid var(--line);background:var(--panel);overflow:auto;padding:8px}
+aside .f{padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;word-break:break-all;display:flex;justify-content:space-between;gap:6px}
+aside .f.on{background:var(--accent);color:#fff}
+aside .f small{opacity:.7}
+#view{flex:1;overflow:auto;padding:16px;position:relative}
+#drop{max-width:420px;margin:12vh auto;text-align:center;color:var(--muted);border:2px dashed var(--line);border-radius:16px;padding:40px 20px}
+#drop.over{border-color:var(--accent);color:var(--accent)}
+.doc{max-width:860px;margin:0 auto}
+.paper{background:var(--page);color:var(--pagetext);padding:36px 44px;border-radius:6px;box-shadow:0 1px 6px rgba(0,0,0,.18);overflow-x:auto}
+.paper table{border-collapse:collapse;margin:8px 0}.paper td,.paper th{border:1px solid #ccd;padding:4px 8px}
+.paper img{max-width:100%}
+.paper pre{white-space:pre-wrap;word-break:break-word;margin:0;font:13px/1.6 ui-monospace,Menlo,Consolas,monospace}
+.sheet h3{margin:18px 0 6px;color:#555}
+.pdfpage{position:relative;margin:0 auto 14px;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.25);max-width:100%}
+.pdfpage canvas{display:block;width:100%;height:auto}
+.tl{position:absolute;inset:0;overflow:hidden;line-height:1}
+.tl span{position:absolute;color:transparent;white-space:pre;transform-origin:0 0}
+mark.h{background:var(--hl);color:inherit;border-radius:2px;padding:0}
+mark.h.cur{background:var(--cur)}
+.hl{position:absolute;inset:0;pointer-events:none;mix-blend-mode:multiply}
+.hl i{position:absolute;background:#ffe14d;border-radius:2px}
+.hl i.cur{background:#ff8a1f}
+.opt{display:flex;align-items:center;gap:4px;font-size:13px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.msg{text-align:center;color:var(--muted);margin:30px}
+@media(max-width:700px){aside{display:none}.paper{padding:20px 16px}}
+</style>
+</head>
+<body>
+<header>
+  <label class="btn primary">Open files<input id="file" type="file" multiple hidden accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md,.html,.htm,.json,.xml,.log"></label>
+  <div class="search">
+    <input id="q" type="search" placeholder="Search a word or phrase in the document…" disabled>
+    <label class="opt" title="Match case"><input type="checkbox" id="mc">Aa</label>
+    <label class="opt" title="Whole word only"><input type="checkbox" id="ww">Whole word</label>
+    <span class="count" id="count"></span>
+    <button id="prev" disabled title="Previous (Shift+Enter)">▲</button>
+    <button id="next" disabled title="Next (Enter)">▼</button>
+  </div>
+</header>
+<main>
+  <aside id="list"></aside>
+  <div id="view">
+    <div id="drop">
+      <div style="font-size:42px">📄</div>
+      <p><b>Drop a file here</b> or tap <b>Open files</b></p>
+      <p style="font-size:13px">PDF · Word (.docx) · Excel (.xlsx/.csv) · TXT · Markdown · HTML</p>
+    </div>
+  </div>
+</main>
+
+<script src="libs/pdf.min.js"></script>
+<script src="libs/pdf.worker.min.js"></script>
+<script src="libs/mammoth.browser.min.js"></script>
+<script src="libs/xlsx.full.min.js"></script>
+<script>
+if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+<script>
+const $=id=>document.getElementById(id);
+const view=$('view'),q=$('q'),count=$('count'),list=$('list');
+let files=[],active=-1,marks=[],cur=-1,token=0;
+
+window.addEventListener('load',()=>{
+  const miss=[['pdfjsLib','pdf.min.js'],['mammoth','mammoth.browser.min.js'],['XLSX','xlsx.full.min.js']].filter(x=>typeof window[x[0]]==='undefined').map(x=>x[1]);
+  if(miss.length){const d=document.getElementById('drop');if(d)d.insertAdjacentHTML('afterbegin','<p style="color:#d33"><b>Missing files in the libs folder:</b><br>'+miss.join(', ')+'</p>')}
+});
+function esc(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function reEsc(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+
+// ---------- search & highlight ----------
+function clearMarks(){
+  view.querySelectorAll('.hl').forEach(h=>h.innerHTML='');
+  view.querySelectorAll('mark.h').forEach(m=>{const p=m.parentNode;p.replaceChild(document.createTextNode(m.textContent),m);p.normalize()});
+  marks=[];cur=-1;
+}
+function buildRe(term){
+  // each word's letters may be split across text pieces (\u0001 = piece boundary); spaces match any gap/line break
+  const toks=term.trim().split(/\s+/).map(w=>[...w].map(reEsc).join('\\u0001*'));
+  let src=toks.join('[\\s\\u0001]+');
+  if($('ww').checked)src='(?<![\\p{L}\\p{N}_])'+src+'(?![\\p{L}\\p{N}_])';
+  return new RegExp(src,'gu'+($('mc').checked?'':'i'));
+}
+function highlight(){
+  clearMarks();
+  const term=q.value.trim();
+  $('prev').disabled=$('next').disabled=true;
+  if(!term){count.textContent='';return}
+  let re;try{re=buildRe(term)}catch(e){count.textContent='Invalid';return}
+  const jobs=[];
+  view.querySelectorAll('.tl,.paper').forEach(block=>{
+    const w=document.createTreeWalker(block,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.nodeValue?1:3});
+    let s='',segs=[],prev=null,n;
+    while((n=w.nextNode())){
+      if(prev&&prev.parentNode!==n.parentNode)s+='\u0001';
+      segs.push({n,a:s.length,b:s.length+n.nodeValue.length});
+      s+=n.nodeValue;prev=n;
+    }
+    re.lastIndex=0;let m;
+    while((m=re.exec(s))){
+      if(!m[0]){re.lastIndex++;continue}
+      const a=m.index,b=a+m[0].length,parts=[];
+      for(const g of segs){
+        const x=Math.max(a,g.a),y=Math.min(b,g.b);
+        if(x<y)parts.push({n:g.n,s:x-g.a,e:y-g.a});
+      }
+      if(parts.length)jobs.push({block,parts});
+    }
+  });
+  const groups=new Array(jobs.length);
+  for(let i=jobs.length-1;i>=0;i--){
+    const {block,parts}=jobs[i],els=[];
+    for(let k=parts.length-1;k>=0;k--){
+      const p=parts[k],r=document.createRange();
+      r.setStart(p.n,p.s);r.setEnd(p.n,p.e);
+      if(block.classList.contains('tl')){
+        // PDF: draw a box exactly over the matched characters
+        const host=block.parentNode,hr=host.getBoundingClientRect(),hl=host.querySelector('.hl');
+        let rects=[];
+        const arr=block._b&&block._b.get(p.n);
+        if(arr){
+          const k=block._k;let cr=null;
+          for(let o=p.s;o<p.e;o++){const b=arr[o];if(!b)continue;
+            if(cr&&Math.abs(b.y-cr.y)<(cr.b-cr.t)*0.5&&b.x>cr.l-1){cr.r=Math.max(cr.r,b.x+b.w);cr.t=Math.min(cr.t,b.y-b.a);cr.b=Math.max(cr.b,b.y+b.d)}
+            else{cr={y:b.y,l:b.x,r:b.x+b.w,t:b.y-b.a,b:b.y+b.d};rects.push(cr)}}
+          rects=rects.map(c=>({left:c.l*k,top:c.t*k,width:(c.r-c.l)*k,height:(c.b-c.t)*k}));
+        }else rects=[...r.getClientRects()].map(c=>({left:c.left-hr.left,top:c.top-hr.top,width:c.width,height:c.height}));
+        for(const c of rects){
+          if(c.width<1||c.height<1)continue;
+          const d=document.createElement('i');
+          d.style.cssText='left:'+c.left+'px;top:'+c.top+'px;width:'+c.width+'px;height:'+c.height+'px';
+          hl.appendChild(d);els.unshift(d);
+        }
+      }else{
+        const mk=document.createElement('mark');mk.className='h';r.surroundContents(mk);els.unshift(mk);
+      }
+    }
+    groups[i]=els;
+  }
+  marks=groups.filter(g=>g.length);
+  $('prev').disabled=$('next').disabled=!marks.length;
+  if(marks.length)go(0);else count.textContent='No results';
+}
+function go(i){
+  if(!marks.length)return;
+  if(cur>=0)marks[cur].forEach(e=>e.classList.remove('cur'));
+  cur=(i+marks.length)%marks.length;
+  marks[cur].forEach(e=>e.classList.add('cur'));
+  marks[cur][0].scrollIntoView({block:'center',behavior:'smooth'});
+  count.textContent=(cur+1)+' / '+marks.length;
+}
+let timer;
+q.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(highlight,200)});
+q.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();marks.length?go(cur+(e.shiftKey?-1:1)):highlight()}});
+$('mc').onchange=$('ww').onchange=highlight;
+$('next').onclick=()=>go(cur+1);$('prev').onclick=()=>go(cur-1);
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='f'&&files.length){e.preventDefault();q.focus();q.select()}});
+
+// ---------- file handling ----------
+$('file').addEventListener('change',e=>{addFiles([...e.target.files]);e.target.value=''});
+['dragover','dragenter'].forEach(ev=>document.body.addEventListener(ev,e=>{e.preventDefault();const d=$('drop');d&&d.classList.add('over')}));
+['dragleave','drop'].forEach(ev=>document.body.addEventListener(ev,e=>{e.preventDefault();const d=$('drop');d&&d.classList.remove('over')}));
+document.body.addEventListener('drop',e=>addFiles([...e.dataTransfer.files]));
+
+function addFiles(fs){
+  if(!fs.length)return;
+  const start=files.length;
+  files.push(...fs);renderList();open(start);
+}
+function renderList(){
+  list.innerHTML=files.map((f,i)=>`<div class="f ${i===active?'on':''}" data-i="${i}"><span>${esc(f.name)}</span><small>${(f.size/1024).toFixed(0)}KB</small></div>`).join('');
+  list.querySelectorAll('.f').forEach(el=>el.onclick=()=>open(+el.dataset.i));
+}
+async function open(i){
+  active=i;renderList();
+  const f=files[i],my=++token,ext=f.name.split('.').pop().toLowerCase();
+  marks=[];cur=-1;count.textContent='';
+  view.innerHTML='<div class="msg">Loading '+esc(f.name)+'…</div>';
+  q.disabled=false;
+  try{
+    if(ext==='pdf')await showPdf(f,my);
+    else if(ext==='docx')await showDocx(f);
+    else if(['xlsx','xls','csv'].includes(ext))await showSheet(f);
+    else if(['html','htm'].includes(ext))showHtml(await f.text());
+    else if(ext==='doc'||ext==='ppt'||ext==='pptx')view.innerHTML='<div class="msg">This format isn’t supported yet. Save it as PDF or .docx and open that instead.</div>';
+    else showText(await f.text());
+  }catch(err){view.innerHTML='<div class="msg">Couldn’t open this file: '+esc(String(err.message||err))+'</div>'}
+  if(my===token&&q.value.trim())highlight();
+}
+function paper(html){view.innerHTML='<div class="doc"><div class="paper">'+html+'</div></div>'}
+function showText(t){paper('<pre>'+esc(t)+'</pre>')}
+function showHtml(h){
+  const d=new DOMParser().parseFromString(h,'text/html');
+  d.querySelectorAll('script,style,iframe,object,embed,link').forEach(n=>n.remove());
+  d.querySelectorAll('*').forEach(n=>[...n.attributes].forEach(a=>{if(/^on/i.test(a.name))n.removeAttribute(a.name)}));
+  paper(d.body.innerHTML);
+}
+async function showDocx(f){
+  const r=await mammoth.convertToHtml({arrayBuffer:await f.arrayBuffer()});
+  showHtml(r.value||'<p>(empty document)</p>');
+}
+async function showSheet(f){
+  const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
+  paper('<div class="sheet">'+wb.SheetNames.map(n=>'<h3>'+esc(n)+'</h3>'+XLSX.utils.sheet_to_html(wb.Sheets[n],{header:'',footer:''}).replace(/^[\s\S]*?<table/i,'<table').replace(/<\/table>[\s\S]*$/i,'</table>')).join('')+'</div>');
+}
+async function showPdf(f,my){
+  const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;
+  view.innerHTML='<div class="doc" id="pages"></div>';
+  const host=$('pages'),W=Math.min(860,Math.max(300,view.clientWidth-32));
+  for(let n=1;n<=pdf.numPages;n++){
+    if(my!==token)return;
+    const page=await pdf.getPage(n);
+    const base=page.getViewport({scale:1}),scale=W/base.width*(window.devicePixelRatio>1?1.5:1.2);
+    const vp=page.getViewport({scale});
+    const div=document.createElement('div');div.className='pdfpage';div.style.width=(vp.width/scale*(W/base.width))+'px';
+    const cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;
+    const tl=document.createElement('div');tl.className='tl';
+    const hl=document.createElement('div');hl.className='hl';
+    div.append(cv,hl,tl);host.appendChild(div);
+    // record the exact position of every glyph as the PDF draws it, so highlights land on the real letters
+    const ctx=cv.getContext('2d'),rec=[],of=ctx.fillText;
+    ctx.fillText=function(t,x,y,...r){
+      try{const m=this.getTransform(),tm=this.measureText(t),s=Math.abs(m.d)||1,sx=Math.abs(m.a)||1;
+        rec.push({c:t,x:m.a*x+m.c*y+m.e,y:m.b*x+m.d*y+m.f,w:tm.width*sx,
+          a:(tm.fontBoundingBoxAscent??tm.actualBoundingBoxAscent)*s,d:(tm.fontBoundingBoxDescent??tm.actualBoundingBoxDescent)*s})}catch(e){}
+      return of.call(this,t,x,y,...r)};
+    await page.render({canvasContext:ctx,viewport:vp}).promise;
+    delete ctx.fillText;
+    const tc=await page.getTextContent();
+    // text layer sized to the displayed width
+    const disp=page.getViewport({scale:div.clientWidth/base.width});
+    tl.style.width=disp.width+'px';tl.style.height=disp.height+'px';
+    await pdfjsLib.renderTextLayer({textContentSource:tc,container:tl,viewport:disp,textDivs:[]}).promise;
+    try{ // pair each text character with the glyph drawn for it
+      const T=[],wk=document.createTreeWalker(tl,NodeFilter.SHOW_TEXT);
+      while(wk.nextNode()){const n=wk.currentNode;for(let o=0;o<n.nodeValue.length;o++)if(!/\s/.test(n.nodeValue[o]))T.push({n,o})}
+      const G=rec.filter(g=>g.c.trim());
+      if(T.length&&G.length===T.length){
+        for(let i=0;i<G.length;i++){const g=G[i],nx=G[i+1];
+          if(nx&&Math.abs(nx.y-g.y)<(g.a+g.d)*0.3&&nx.x>g.x&&nx.x-g.x<g.w*1.15)g.w=nx.x-g.x}
+        const map=new Map();
+        T.forEach((t,i)=>{let a=map.get(t.n);if(!a){a=new Array(t.n.nodeValue.length);map.set(t.n,a)}a[t.o]=G[i]});
+        tl._b=map;tl._k=div.clientWidth/cv.width;
+      }
+    }catch(e){}
+    count.textContent='Page '+n+' / '+pdf.numPages;
+    if(n===pdf.numPages)count.textContent='';
+  }
+}
+</script>
+</body>
+</html>
